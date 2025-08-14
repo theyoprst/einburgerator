@@ -106,7 +106,12 @@ Examples:
 
             if resp.status_code != HTTPStatus.OK:
                 failures += 1
-                logger.warning('HTTP status %d, waiting for %0.1f seconds', resp.status_code, next_sleep)
+                if resp.status_code == 403:
+                    body_preview = resp.text[:100] if resp.text else "No response body"
+                    logger.warning('HTTP status %d, waiting for %0.1f seconds', resp.status_code, next_sleep)
+                    logger.debug('Response body (first 100 chars): %s', body_preview)
+                else:
+                    logger.warning('HTTP status %d, waiting for %0.1f seconds', resp.status_code, next_sleep)
             elif NO_APPOINTMENTS in resp.text:
                 logger.info(f'"{NO_APPOINTMENTS}", waiting for %0.1f seconds', next_sleep)
             else:
