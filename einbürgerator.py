@@ -27,7 +27,7 @@ def get_refresh_page_url(service_code):
     return f'https://service.berlin.de/terminvereinbarung/termin/restart/?providerList=122626%2C122659%2C122664%2C122666%2C122671%2C325853%2C325987%2C351435%2C351438%2C351444%2C351636&requestList={service_code}'
 
 
-def refresh_page(service_code):
+def refresh_page(service_code, logger):
     session = requests.Session()
     session.mount('https://', requests.adapters.HTTPAdapter(max_retries=Retry(
         total=5,
@@ -38,10 +38,25 @@ def refresh_page(service_code):
     main_page_url = get_main_page_url(service_code)
     # The User-Agent spoofing to Google Chrome doesn't work: berlin.de detects it and returns 403 status code consistently.
     session.headers.update({'User-Agent': "Einbuergerator/1.0"})
-    resp = session.get(main_page_url)
+    
+    def make_request():
+        # Log request headers in verbose mode
+        logger.debug('Request headers: %s', dict(session.headers))
+        if session.cookies:
+            logger.debug('Request cookies: %s', dict(session.cookies))
+        
+        resp = session.get(main_page_url)
+        
+        # Log response headers in verbose mode
+        logger.debug('Response status: %d', resp.status_code)
+        logger.debug('Response headers: %s', dict(resp.headers))
+            
+        return resp
+    
+    resp = make_request()
     yield resp
     while True:
-        resp = session.get(main_page_url)
+        resp = make_request()
         yield resp
 
 
@@ -63,12 +78,19 @@ Examples:
         default='leben-in-deutschland',
         help='Service to monitor for appointments (default: %(default)s)'
     )
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Enable verbose logging (shows HTTP headers and cookies)'
+    )
 
     args = parser.parse_args()
     service_code = SERVICES[args.service]
 
+    # Configure logging level based on verbose flag
+    log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s : %(levelname)s : %(message)s'
     )
     logger = logging.getLogger('default')
@@ -77,9 +99,11 @@ Examples:
     total, failures = 0, 0
     main_page_url = get_main_page_url(service_code)
     try:
-        for resp in refresh_page(service_code):
+        for resp in refresh_page(service_code, logger):
             total += 1
             next_sleep = random.uniform(60, 90)
+
+
             if resp.status_code != HTTPStatus.OK:
                 failures += 1
                 logger.warning('HTTP status %d, waiting for %0.1f seconds', resp.status_code, next_sleep)
